@@ -41,7 +41,15 @@ def compute_saliency_maps(X, y, model):
     # Hint: X.grad.data stores the gradients                                     #
     ##############################################################################
     # Replace "pass" statement with your code
-    pass
+    scores = model(X)
+    
+    correct_class_scores = scores.gather(1, y.view(-1, 1)).squeeze()
+    loss = torch.sum(correct_class_scores) # 或者 correct_class_scores.sum()
+    
+    loss.backward()
+    
+    saliency, _ = torch.max(X.grad.data.abs(), dim=1) 
+    X.grad.data.zero_()
     ##############################################################################
     #               END OF YOUR CODE                                             #
     ##############################################################################
@@ -84,7 +92,52 @@ def make_adversarial_attack(X, target_y, model, max_iter=100, verbose=True):
     # You can print your progress over iterations to check your algorithm.       #
     ##############################################################################
     # Replace "pass" statement with your code
-    pass
+    for i in range(max_iter):
+        scores = model(X_adv)
+        
+        _, predicted_class = scores.max(1)
+        if predicted_class.item() == target_y:
+            if verbose:
+                print(f"成功欺骗模型，迭代次数: {i+1}")
+            break
+        
+        target_score = scores[0, target_y]
+        
+        if X_adv.grad is not None:
+            X_adv.grad.data.zero_()
+        target_score.backward()
+        
+        if X_adv.grad is None:
+            if verbose:
+                print(f"迭代 {i+1}: 梯度未计算，可能目标分数过低或模型问题，停止")
+            break
+        g = X_adv.grad.data
+        
+        norm_g = torch.norm(g)
+        if norm_g == 0: 
+            if verbose:
+                print(f"迭代 {i+1}: 梯度范数为零，停止")
+            break 
+            
+        dX = learning_rate * g / norm_g
+        X_adv.data = X_adv.data + dX 
+        
+        if verbose and (i + 1) % 10 == 0:
+            max_score_val, _ = scores.max(1)
+            print(f'Iteration {i+1}: target score {target_score.item():.3f}, max score {max_score_val.item():.3f}')
+    
+    final_scores = model(X_adv)
+    _, final_predicted_class = final_scores.max(1)
+    if verbose:
+        if final_predicted_class.item() == target_y:
+            if i < max_iter -1 :
+                 pass
+            else:
+                 print(f"成功欺骗模型，在最大迭代次数 {max_iter} 时达成。")
+        else:
+            print(f"达到最大迭代次数 {max_iter}，未能成功欺骗模型。最终预测类别: {final_predicted_class.item()}")
+
+    X_adv = X_adv.detach()
     ##############################################################################
     #                             END OF YOUR CODE                               #
     ##############################################################################
@@ -119,7 +172,20 @@ def class_visualization_step(img, target_y, model, **kwargs):
     # after each step.                                                     #
     ########################################################################
     # Replace "pass" statement with your code
-    pass
+    img.requires_grad_(True)
+
+    scores = model(img)
+    target_score = scores[0, target_y]
+
+    target_score.backward()
+
+    if img.grad is None:
+        return img
+
+    img.data += learning_rate * (img.grad.data - l2_reg * img.data)
+
+    if img.grad is not None:
+        img.grad.data.zero_()
     ########################################################################
     #                             END OF YOUR CODE                         #
     ########################################################################
